@@ -1,0 +1,9 @@
+# .dockerignore
+node_modules
+.env
+.git
+.gitignore
+README.md
+temp
+*.log
+.DS_Store
