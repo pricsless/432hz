@@ -4,12 +4,17 @@ services:
     env: docker
     region: singapore
     plan: free
+    scaling:
+      minInstances: 1
+      maxInstances: 1
     healthCheckPath: /health
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: 8080
     disk:
       name: temp
       mountPath: /app/temp

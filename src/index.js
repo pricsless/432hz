@@ -5,8 +5,11 @@ const https = require("https");
 const config = require("./config");
 const AudioConverter = require("./audioConverter");
 
-// Add at the top of index.js, after the requires
+// Fix deprecation warning
 process.env.NTBA_FIX_350 = 1;
+
+// Shutdown flag
+let isShuttingDown = false;
 
 // Constants
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB in bytes
@@ -15,8 +18,38 @@ const SUPPORTED_FORMATS = [".mp3", ".m4a", ".wav", ".ogg"];
 // Create temp directory for file processing
 const converter = new AudioConverter(config.tempDir);
 
-// Create bot instance
-const bot = new TelegramBot(config.telegramToken, { polling: true });
+// Create bot instance with improved options
+const bot = new TelegramBot(config.telegramToken, {
+  polling: true,
+  filepath: false,
+  request: {
+    timeout: 60000,
+  },
+});
+
+// Graceful shutdown handler
+async function gracefulShutdown() {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
+  console.log("Shutting down gracefully...");
+  try {
+    await bot.stopPolling();
+    console.log("Bot polling stopped");
+    process.exit(0);
+  } catch (error) {
+    console.error("Error during shutdown:", error);
+    process.exit(1);
+  }
+}
+
+// Process termination handlers
+process.on("SIGTERM", gracefulShutdown);
+process.on("SIGINT", gracefulShutdown);
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught Exception:", error);
+  gracefulShutdown();
+});
 
 // Download file from Telegram with progress tracking
 async function downloadFile(
@@ -66,7 +99,7 @@ async function downloadFile(
         });
       })
       .on("error", (err) => {
-        fs.unlink(destinationPath, () => {}); // Delete the partial file
+        fs.unlink(destinationPath, () => {}); // Delete partial file
         console.error("Download error:", err);
         reject(err);
       });
@@ -82,13 +115,21 @@ http
       res.end("OK");
     }
   })
-  .listen(8080);
+  .listen(process.env.PORT || 8080);
 
 // Handle incoming audio files
 bot.on("audio", async (msg) => {
   const chatId = msg.chat.id;
 
   try {
+    if (isShuttingDown) {
+      await bot.sendMessage(
+        chatId,
+        "❌ Bot is currently shutting down. Please try again in a few moments."
+      );
+      return;
+    }
+
     // Check file size
     if (msg.audio.file_size > MAX_FILE_SIZE) {
       await bot.sendMessage(
@@ -222,16 +263,17 @@ bot.onText(/\/start/, async (msg) => {
   );
 });
 
-// Error handling
+// Error handling for bot polling
 bot.on("polling_error", (error) => {
   console.error("Polling error:", error);
-});
-
-// Graceful shutdown
-process.on("SIGTERM", () => {
-  bot.stopPolling({ cancel: true });
-  console.log("Bot is shutting down...");
-  process.exit(0);
+  if (
+    error.code === "ETELEGRAM" &&
+    error.response &&
+    error.response.statusCode === 409
+  ) {
+    console.log("Detected duplicate instance, shutting down...");
+    gracefulShutdown();
+  }
 });
 
 console.log("Bot is running...");
