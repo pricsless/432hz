@@ -8,8 +8,12 @@ const AudioConverter = require("./audioConverter");
 // Fix deprecation warning
 process.env.NTBA_FIX_350 = 1;
 
-// Shutdown flag
+// Shutdown and error tracking flags
 let isShuttingDown = false;
+let pollingErrorCount = 0;
+const MAX_POLLING_ERRORS = 3;
+const POLLING_ERROR_RESET_TIME = 60000; // 1 minute
+let pollingErrorTimeout;
 
 // Constants
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB in bytes
@@ -20,22 +24,52 @@ const converter = new AudioConverter(config.tempDir);
 
 // Create bot instance with improved options
 const bot = new TelegramBot(config.telegramToken, {
-  polling: true,
+  polling: {
+    interval: 300,
+    autoStart: true,
+    params: {
+      timeout: 10,
+    },
+  },
   filepath: false,
   request: {
     timeout: 60000,
   },
+  baseApiUrl: "https://api.telegram.org",
 });
+
+// Error reset function
+function resetPollingErrors() {
+  pollingErrorCount = 0;
+  if (pollingErrorTimeout) {
+    clearTimeout(pollingErrorTimeout);
+    pollingErrorTimeout = null;
+  }
+}
 
 // Graceful shutdown handler
 async function gracefulShutdown() {
   if (isShuttingDown) return;
   isShuttingDown = true;
 
-  console.log("Shutting down gracefully...");
+  console.log("Initiating graceful shutdown...");
   try {
+    console.log("Stopping bot polling...");
     await bot.stopPolling();
     console.log("Bot polling stopped");
+
+    // Wait a bit to ensure all processes are complete
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+
+    // Clean up temp directory
+    if (fs.existsSync(config.tempDir)) {
+      const files = fs.readdirSync(config.tempDir);
+      for (const file of files) {
+        fs.unlinkSync(path.join(config.tempDir, file));
+      }
+    }
+
+    console.log("Shutdown complete");
     process.exit(0);
   } catch (error) {
     console.error("Error during shutdown:", error);
@@ -106,7 +140,7 @@ async function downloadFile(
   });
 }
 
-// Add health check endpoint
+// Health check endpoint
 const http = require("http");
 http
   .createServer((req, res) => {
@@ -166,7 +200,7 @@ bot.on("audio", async (msg) => {
       `input_${Date.now()}${path.extname(msg.audio.file_name || ".mp3")}`
     );
 
-    // Extract metadata from the message
+    // Extract metadata
     const metadata = {
       title: msg.audio.title,
       artist: msg.audio.performer,
@@ -174,7 +208,7 @@ bot.on("audio", async (msg) => {
       duration: msg.audio.duration,
     };
 
-    // Download file with progress tracking
+    // Download file
     await downloadFile(
       `https://api.telegram.org/file/bot${config.telegramToken}/${file.file_path}`,
       inputPath,
@@ -189,7 +223,7 @@ bot.on("audio", async (msg) => {
       message_id: statusMessage.message_id,
     });
 
-    // Convert to 432 Hz with metadata
+    // Convert to 432 Hz
     const result = await converter.convertTo432Hz(inputPath, metadata);
 
     // Update status before upload
@@ -198,7 +232,7 @@ bot.on("audio", async (msg) => {
       message_id: statusMessage.message_id,
     });
 
-    // Send converted file with metadata
+    // Send converted file
     await bot.sendAudio(chatId, fs.createReadStream(result.path), {
       caption: "🎼 Here's your audio converted to 432 Hz frequency",
       parse_mode: "HTML",
@@ -222,7 +256,6 @@ bot.on("audio", async (msg) => {
   } catch (error) {
     console.error("Error processing audio:", error);
 
-    // Send appropriate error message based on error type
     let errorMessage =
       "❌ Sorry, there was an error processing your audio file.";
 
@@ -264,15 +297,36 @@ bot.onText(/\/start/, async (msg) => {
 });
 
 // Error handling for bot polling
-bot.on("polling_error", (error) => {
-  console.error("Polling error:", error);
-  if (
-    error.code === "ETELEGRAM" &&
-    error.response &&
-    error.response.statusCode === 409
-  ) {
-    console.log("Detected duplicate instance, shutting down...");
-    gracefulShutdown();
+bot.on("polling_error", async (error) => {
+  console.error("Polling error:", error.message || error);
+
+  if (error.code === "ETELEGRAM" && error.response?.statusCode === 409) {
+    console.log("Detected duplicate instance, initiating graceful shutdown...");
+    await gracefulShutdown();
+    return;
+  }
+
+  pollingErrorCount++;
+  console.log(`Polling error count: ${pollingErrorCount}`);
+
+  if (pollingErrorCount >= MAX_POLLING_ERRORS) {
+    console.log("Maximum polling errors reached, restarting polling...");
+    try {
+      await bot.stopPolling();
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      await bot.startPolling();
+      resetPollingErrors();
+    } catch (e) {
+      console.error("Error during polling restart:", e);
+      await gracefulShutdown();
+    }
+  } else {
+    if (!pollingErrorTimeout) {
+      pollingErrorTimeout = setTimeout(
+        resetPollingErrors,
+        POLLING_ERROR_RESET_TIME
+      );
+    }
   }
 });
 

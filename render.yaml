@@ -7,6 +7,8 @@ services:
     scaling:
       minInstances: 1
       maxInstances: 1
+    buildCommand: docker build -t telegram-432hz-bot .
+    startCommand: docker run --name telegram-432hz-bot --rm -e TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN} -e NODE_ENV=production -e PORT=8080 -p 8080:8080 telegram-432hz-bot
     healthCheckPath: /health
     envVars:
       - key: TELEGRAM_BOT_TOKEN
@@ -14,7 +16,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: PORT
-        value: 8080
+        value: "8080"
     disk:
       name: temp
       mountPath: /app/temp
