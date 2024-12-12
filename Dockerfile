@@ -12,27 +12,21 @@ RUN apt-get update && \
 # Create app directory
 WORKDIR /app
 
-# Copy all files (including package.json and source)
-COPY . .
+# Copy package files
+COPY package*.json ./
 
 # Install dependencies
 RUN npm ci --only=production
+
+# Copy source code
+COPY . .
 
 # Create temp directory and set permissions
 RUN mkdir -p /app/temp && \
     chmod 777 /app/temp
 
-# Set environment variables
-ENV NODE_ENV=production \
-    TEMP_DIR=/app/temp \
-    FFMPEG_PATH=/usr/bin/ffmpeg \
-    PORT=8080
-
 # Expose port
 EXPOSE 8080
-
-# Run as non-root user
-USER node
 
 # Start the bot
 CMD ["npm", "start"]

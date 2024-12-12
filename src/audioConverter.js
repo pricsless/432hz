@@ -3,13 +3,14 @@ const path = require("path");
 const { exec } = require("child_process");
 const { promisify } = require("util");
 const execAsync = promisify(exec);
+const config = require("./config");
 
 class AudioConverter {
   constructor(tempDir) {
     this.tempDir = tempDir;
     this.ensureTempDir();
-    this.ffmpegPath = "/opt/homebrew/bin/ffmpeg";
-    this.soxPath = "/opt/homebrew/bin/sox";
+    // Use 'ffmpeg' directly as it will be in PATH for deployed environment
+    this.ffmpegPath = "ffmpeg";
   }
 
   ensureTempDir() {
@@ -42,8 +43,6 @@ class AudioConverter {
 
       const ext = path.extname(inputPath);
       const basename = path.basename(inputPath, ext);
-      const wavFile = path.join(this.tempDir, `${basename}_temp.wav`);
-      const processedWav = path.join(this.tempDir, `${basename}_processed.wav`);
       const outputPath = path.join(
         this.tempDir,
         `${originalMetadata.title || basename}_432hz${ext}`
@@ -53,11 +52,12 @@ class AudioConverter {
       const metadataArgs = this.buildMetadataArgs(originalMetadata);
 
       console.log("\nAttempting direct conversion...");
+      // Remove quotes around FFmpeg path
       const directCommand =
-        `"${this.ffmpegPath}" -i "${inputPath}" ` +
+        `${this.ffmpegPath} -i "${inputPath}" ` +
         `-af "asetrate=44100*0.981818,aresample=44100" ` +
         `-c:a libmp3lame -b:a 320k ` +
-        `-map 0:a ${metadataArgs} ` + // Keep only audio stream and metadata
+        `-map 0:a ${metadataArgs} ` +
         `"${outputPath}"`;
 
       try {
@@ -70,26 +70,13 @@ class AudioConverter {
       } catch (directError) {
         console.log("Direct conversion failed, trying alternative method...");
 
-        // Convert to WAV first
-        const toWavCommand = `"${this.ffmpegPath}" -i "${inputPath}" -ac 2 -acodec pcm_f32le -ar 44100 "${wavFile}"`;
-        await this.execWithLogging(toWavCommand, "WAV Conversion");
-
-        // Use sox for pitch adjustment
-        const speedFactor = 0.981818;
-        const soxCommand = `"${this.soxPath}" "${wavFile}" "${processedWav}" speed ${speedFactor}`;
-        await this.execWithLogging(soxCommand, "SoX Processing");
-
-        // Convert back to MP3 with metadata
         const toMp3Command =
-          `"${this.ffmpegPath}" -i "${processedWav}" ` +
-          `-i "${inputPath}" -map 0:a -map 1:v ` + // Keep audio from processed file and video (cover) from original
+          `${this.ffmpegPath} -i "${inputPath}" ` +
+          `-af "asetrate=44100*0.981818,aresample=44100" ` +
           `-c:a libmp3lame -b:a 320k -ar 44100 ` +
           `${metadataArgs} "${outputPath}"`;
-        await this.execWithLogging(toMp3Command, "MP3 Conversion");
 
-        // Cleanup temporary files
-        this.cleanup(wavFile);
-        this.cleanup(processedWav);
+        await this.execWithLogging(toMp3Command, "MP3 Conversion");
 
         return {
           path: outputPath,
