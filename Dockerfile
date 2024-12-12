@@ -1,4 +1,3 @@
-# Dockerfile
 FROM node:18-slim
 
 # Install FFmpeg with additional codecs
@@ -37,22 +36,3 @@ USER node
 
 # Start the bot
 CMD ["npm", "start"]
-
-# render.yaml
-services:
-  - type: web
-    name: telegram-432hz-bot
-    env: docker
-    region: singapore  # Choose the region closest to your users
-    plan: free
-    healthCheckPath: /health
-    envVars:
-      - key: TELEGRAM_BOT_TOKEN
-        sync: false
-      - key: NODE_ENV
-        value: production
-    disk:
-      name: temp
-      mountPath: /app/temp
-      sizeGB: 1
-
