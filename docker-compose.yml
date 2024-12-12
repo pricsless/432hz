@@ -1,16 +1,14 @@
+version: "3.8"
+
 services:
-  - type: web
-    name: telegram-432hz-bot
-    env: docker
-    region: singapore
-    plan: free
-    healthCheckPath: /health
-    envVars:
-      - key: TELEGRAM_BOT_TOKEN
-        sync: false
-      - key: NODE_ENV
-        value: production
-    disk:
-      name: temp
-      mountPath: /app/temp
-      sizeGB: 1
+  bot:
+    build: .
+    container_name: telegram-432hz-bot
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - NODE_ENV=production
+      - TEMP_DIR=/app/temp
+      - FFMPEG_PATH=/usr/bin/ffmpeg
+    volumes:
+      - ./temp:/app/temp
+    restart: unless-stopped

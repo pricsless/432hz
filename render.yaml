@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: telegram-432hz-bot
+    env: docker
+    region: singapore
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: NODE_ENV
+        value: production
+    disk:
+      name: temp
+      mountPath: /app/temp
+      sizeGB: 1
