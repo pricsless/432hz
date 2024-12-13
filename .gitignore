@@ -1,5 +1,6 @@
 node_modules/
 .env
+con.txt
 temp/
 *.log
 .DS_Store
