@@ -9,7 +9,6 @@ class AudioConverter {
   constructor(tempDir) {
     this.tempDir = tempDir;
     this.ensureTempDir();
-    // Use 'ffmpeg' directly as it will be in PATH for deployed environment
     this.ffmpegPath = "ffmpeg";
   }
 
@@ -22,7 +21,9 @@ class AudioConverter {
   async execWithLogging(command, step) {
     console.log(`\n[${step}] Executing command:`, command);
     try {
-      const { stdout, stderr } = await execAsync(command);
+      const { stdout, stderr } = await execAsync(command, {
+        maxBuffer: 50 * 1024 * 1024,
+      }); // 50MB buffer
       if (stdout) console.log(`[${step}] stdout:`, stdout);
       if (stderr) console.log(`[${step}] stderr:`, stderr);
       return { stdout, stderr };
@@ -43,21 +44,29 @@ class AudioConverter {
 
       const ext = path.extname(inputPath);
       const basename = path.basename(inputPath, ext);
+      const timestamp = Date.now();
+
+      // Use timestamp in filename if no title available
       const outputPath = path.join(
         this.tempDir,
-        `${originalMetadata.title || basename}_432hz${ext}`
+        `${originalMetadata.title || `audio_${timestamp}`}_432hz${ext}`
       );
 
       // Build metadata arguments for FFmpeg
       const metadataArgs = this.buildMetadataArgs(originalMetadata);
 
       console.log("\nAttempting direct conversion...");
-      // Remove quotes around FFmpeg path
+      // Command that preserves cover art and handles missing metadata
       const directCommand =
         `${this.ffmpegPath} -i "${inputPath}" ` +
         `-af "asetrate=44100*0.981818,aresample=44100" ` +
         `-c:a libmp3lame -b:a 320k ` +
-        `-map 0:a ${metadataArgs} ` +
+        `-c:v copy ` + // Copy video stream (cover art)
+        `-id3v2_version 3 ` + // Ensure ID3v2 tag compatibility
+        `-map 0:a ` + // Map audio stream
+        `-map 0:v? ` + // Map video stream (cover art) if it exists
+        `-map_metadata 0 ` + // Copy existing metadata
+        `${metadataArgs} ` +
         `"${outputPath}"`;
 
       try {
@@ -70,14 +79,19 @@ class AudioConverter {
       } catch (directError) {
         console.log("Direct conversion failed, trying alternative method...");
 
+        // Alternative method with different audio filter chain
         const toMp3Command =
           `${this.ffmpegPath} -i "${inputPath}" ` +
-          `-af "asetrate=44100*0.981818,aresample=44100" ` +
-          `-c:a libmp3lame -b:a 320k -ar 44100 ` +
-          `${metadataArgs} "${outputPath}"`;
+          `-af "asetrate=44100*0.981818,aresample=44100:filter_type=kaiser" ` +
+          `-c:a libmp3lame -b:a 320k ` +
+          `-c:v copy ` + // Still try to preserve cover art
+          `-map 0:a ` +
+          `-map 0:v? ` +
+          `-id3v2_version 3 ` +
+          `${metadataArgs} ` +
+          `"${outputPath}"`;
 
-        await this.execWithLogging(toMp3Command, "MP3 Conversion");
-
+        await this.execWithLogging(toMp3Command, "Alternative Conversion");
         return {
           path: outputPath,
           filename: path.basename(outputPath),
@@ -92,33 +106,34 @@ class AudioConverter {
   buildMetadataArgs(metadata) {
     const args = [];
 
-    // Map common metadata fields
+    // Map common metadata fields with fallbacks
     const metadataMap = {
-      title: "title",
-      artist: "artist",
-      album: "album",
-      year: "date",
-      track: "track",
-      genre: "genre",
-      composer: "composer",
-      copyright: "copyright",
-      description: "description",
+      title: metadata.title || `Audio_${Date.now()}`,
+      artist: metadata.artist || "Unknown Artist",
+      album: metadata.album || "Unknown Album",
     };
 
-    // Build FFmpeg metadata arguments
-    for (const [key, ffmpegKey] of Object.entries(metadataMap)) {
-      if (metadata[key]) {
-        args.push(`-metadata ${ffmpegKey}="${metadata[key]}"`);
-      }
-    }
+    // Add basic metadata
+    Object.entries(metadataMap).forEach(([key, value]) => {
+      const safeValue = value.replace(/"/g, '\\"'); // Escape quotes
+      args.push(`-metadata ${key}="${safeValue}"`);
+    });
 
-    // If there's a title, append 432Hz to it
-    if (metadata.title) {
-      args.push(`-metadata title="${metadata.title} (432Hz)"`);
-    }
+    // Add additional metadata if available
+    if (metadata.year) args.push(`-metadata date="${metadata.year}"`);
+    if (metadata.track) args.push(`-metadata track="${metadata.track}"`);
+    if (metadata.genre) args.push(`-metadata genre="${metadata.genre}"`);
+    if (metadata.composer)
+      args.push(`-metadata composer="${metadata.composer}"`);
+    if (metadata.copyright)
+      args.push(`-metadata copyright="${metadata.copyright}"`);
+    if (metadata.description)
+      args.push(`-metadata description="${metadata.description}"`);
 
-    // Keep all other metadata
-    args.push("-map_metadata 0");
+    // Always append 432Hz to title
+    args.push(
+      `-metadata title="${metadata.title || `Audio_${Date.now()}`} (432Hz)"`
+    );
 
     return args.join(" ");
   }

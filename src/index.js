@@ -16,8 +16,9 @@ const POLLING_ERROR_RESET_TIME = 60000; // 1 minute
 let pollingErrorTimeout;
 
 // Constants
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB in bytes
+const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB in bytes
 const SUPPORTED_FORMATS = [".mp3", ".m4a", ".wav", ".ogg"];
+const PING_INTERVAL = 25 * 60 * 1000; // 25 minutes
 
 // Create temp directory for file processing
 const converter = new AudioConverter(config.tempDir);
@@ -37,6 +38,25 @@ const bot = new TelegramBot(config.telegramToken, {
   },
   baseApiUrl: "https://api.telegram.org",
 });
+
+// Keep server alive function
+// Keep server alive function
+function keepServerAlive() {
+  setInterval(() => {
+    https
+      .get("https://four32hz.onrender.com/health", (resp) => {
+        if (resp.statusCode === 200) {
+          console.log("Server pinged successfully");
+        }
+      })
+      .on("error", (err) => {
+        console.error("Ping error:", err);
+      });
+  }, PING_INTERVAL);
+}
+
+// Start keeping server alive
+keepServerAlive();
 
 // Error reset function
 function resetPollingErrors() {
@@ -164,13 +184,13 @@ bot.on("audio", async (msg) => {
       return;
     }
 
-    // Check file size
+    // Check file size (20MB limit)
     if (msg.audio.file_size > MAX_FILE_SIZE) {
       await bot.sendMessage(
         chatId,
         `❌ File too large (${(msg.audio.file_size / 1024 / 1024).toFixed(
           1
-        )}MB). Maximum size is ${MAX_FILE_SIZE / 1024 / 1024}MB.`
+        )}MB). Maximum size is 20MB for seamless processing.`
       );
       return;
     }
@@ -200,11 +220,16 @@ bot.on("audio", async (msg) => {
       `input_${Date.now()}${path.extname(msg.audio.file_name || ".mp3")}`
     );
 
-    // Extract metadata
+    // Extract metadata with fallbacks
     const metadata = {
-      title: msg.audio.title,
-      artist: msg.audio.performer,
-      album: msg.audio.album,
+      title:
+        msg.audio.title ||
+        path.basename(
+          msg.audio.file_name,
+          path.extname(msg.audio.file_name || "")
+        ),
+      artist: msg.audio.performer || "Unknown Artist",
+      album: msg.audio.album || "Unknown Album",
       duration: msg.audio.duration,
     };
 
@@ -238,7 +263,7 @@ bot.on("audio", async (msg) => {
       parse_mode: "HTML",
       title: metadata.title
         ? `${metadata.title} (432Hz)`
-        : path.basename(result.filename),
+        : `Audio_${Date.now()}_432hz`,
       performer: metadata.artist,
       album: metadata.album,
       duration: metadata.duration,
@@ -289,9 +314,7 @@ bot.onText(/\/start/, async (msg) => {
       "📝 Supported formats: " +
       SUPPORTED_FORMATS.join(", ") +
       "\n" +
-      "📦 Maximum file size: " +
-      MAX_FILE_SIZE / 1024 / 1024 +
-      "MB\n\n" +
+      "📦 Maximum file size: 20MB\n\n" +
       "🎵 Simply send me an audio file and I'll do the magic!"
   );
 });
