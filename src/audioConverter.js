@@ -3,14 +3,12 @@ const path = require("path");
 const { exec } = require("child_process");
 const { promisify } = require("util");
 const execAsync = promisify(exec);
-const config = require("./config");
 
 class AudioConverter {
   constructor(tempDir) {
     this.tempDir = tempDir;
     this.ensureTempDir();
-    // Use 'ffmpeg' directly as it will be in PATH for deployed environment
-    this.ffmpegPath = "ffmpeg";
+    this.ffmpegPath = "ffmpeg"; // Ensure ffmpeg is in the system PATH
   }
 
   ensureTempDir() {
@@ -34,65 +32,8 @@ class AudioConverter {
     }
   }
 
-  async convertTo432Hz(inputPath, originalMetadata = {}) {
-    try {
-      if (!fs.existsSync(inputPath)) {
-        throw new Error(`Input file not found: ${inputPath}`);
-      }
-      console.log("Input file exists and is readable");
-
-      const ext = path.extname(inputPath);
-      const basename = path.basename(inputPath, ext);
-      const outputPath = path.join(
-        this.tempDir,
-        `${originalMetadata.title || basename}_432hz${ext}`
-      );
-
-      // Build metadata arguments for FFmpeg
-      const metadataArgs = this.buildMetadataArgs(originalMetadata);
-
-      console.log("\nAttempting direct conversion...");
-      // Remove quotes around FFmpeg path
-      const directCommand =
-        `${this.ffmpegPath} -i "${inputPath}" ` +
-        `-af "asetrate=44100*0.981818,aresample=44100" ` +
-        `-c:a libmp3lame -b:a 320k ` +
-        `-map 0:a ${metadataArgs} ` +
-        `"${outputPath}"`;
-
-      try {
-        await this.execWithLogging(directCommand, "Direct Conversion");
-        console.log("Conversion successful!");
-        return {
-          path: outputPath,
-          filename: path.basename(outputPath),
-        };
-      } catch (directError) {
-        console.log("Direct conversion failed, trying alternative method...");
-
-        const toMp3Command =
-          `${this.ffmpegPath} -i "${inputPath}" ` +
-          `-af "asetrate=44100*0.981818,aresample=44100" ` +
-          `-c:a libmp3lame -b:a 320k -ar 44100 ` +
-          `${metadataArgs} "${outputPath}"`;
-
-        await this.execWithLogging(toMp3Command, "MP3 Conversion");
-
-        return {
-          path: outputPath,
-          filename: path.basename(outputPath),
-        };
-      }
-    } catch (error) {
-      console.error("Final conversion error:", error);
-      throw new Error(`Conversion failed: ${error.message}`);
-    }
-  }
-
   buildMetadataArgs(metadata) {
     const args = [];
-
-    // Map common metadata fields
     const metadataMap = {
       title: "title",
       artist: "artist",
@@ -105,22 +46,75 @@ class AudioConverter {
       description: "description",
     };
 
-    // Build FFmpeg metadata arguments
     for (const [key, ffmpegKey] of Object.entries(metadataMap)) {
       if (metadata[key]) {
-        args.push(`-metadata ${ffmpegKey}="${metadata[key]}"`);
+        const sanitizedValue = metadata[key].replace(/"/g, "'"); // Replace double quotes with single quotes
+        args.push(`-metadata ${ffmpegKey}="${sanitizedValue}"`);
       }
     }
 
-    // If there's a title, append 432Hz to it
+    // Append "(432Hz)" to the title if it exists
     if (metadata.title) {
-      args.push(`-metadata title="${metadata.title} (432Hz)"`);
+      const sanitizedTitle = metadata.title.replace(/"/g, "'");
+      args.push(`-metadata title="${sanitizedTitle} (432Hz)"`);
     }
 
-    // Keep all other metadata
-    args.push("-map_metadata 0");
-
+    args.push("-map_metadata 0"); // Copy all metadata from the input
     return args.join(" ");
+  }
+
+  async validateFile(inputPath) {
+    try {
+      await this.execWithLogging(
+        `${this.ffmpegPath} -i "${inputPath}" -f null -`,
+        "File Validation"
+      );
+      return true;
+    } catch (error) {
+      console.error("File validation failed:", error.message);
+      return false;
+    }
+  }
+
+  async convertTo432Hz(inputPath, metadata = {}) {
+    if (!fs.existsSync(inputPath)) {
+      throw new Error(`Input file not found: ${inputPath}`);
+    }
+
+    const ext = path.extname(inputPath);
+    const basename = path.basename(inputPath, ext);
+    const outputPath = path.join(this.tempDir, `${basename}_432hz${ext}`);
+
+    // Fallback metadata
+    const defaultMetadata = {
+      title: "Unknown Title",
+      artist: "Unknown Artist",
+      album: "Unknown Album",
+      year: new Date().getFullYear().toString(),
+    };
+    const finalMetadata = { ...defaultMetadata, ...metadata };
+
+    if (!(await this.validateFile(inputPath))) {
+      throw new Error("Invalid input file.");
+    }
+
+    const metadataArgs = this.buildMetadataArgs(finalMetadata);
+
+    const command =
+      `${this.ffmpegPath} -i "${inputPath}" ` +
+      `-af "asetrate=44100*0.981818,aresample=44100" ` +
+      `-c:a libmp3lame -b:a 320k ` +
+      `${metadataArgs} "${outputPath}"`;
+
+    await this.execWithLogging(command, "Convert to 432Hz");
+
+    console.log("\nConversion completed successfully!");
+    console.log(`Output saved as: ${outputPath}`);
+
+    return {
+      path: outputPath,
+      filename: path.basename(outputPath),
+    };
   }
 
   cleanup(filePath) {
