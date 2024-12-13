@@ -42,30 +42,24 @@ class AudioConverter {
       }
       console.log("Input file exists and is readable");
 
-      const ext = path.extname(inputPath);
-      const basename = path.basename(inputPath, ext);
-      const timestamp = Date.now();
-
-      // Use timestamp in filename if no title available
+      const ext = ".mp3"; // Always output as MP3
+      const basename = path.basename(inputPath, path.extname(inputPath));
       const outputPath = path.join(
         this.tempDir,
-        `${originalMetadata.title || `audio_${timestamp}`}_432hz${ext}`
+        `${originalMetadata.title || basename}_432hz${ext}`
       );
 
       // Build metadata arguments for FFmpeg
       const metadataArgs = this.buildMetadataArgs(originalMetadata);
 
       console.log("\nAttempting direct conversion...");
-      // Command that preserves cover art and handles missing metadata
+      // Command that preserves metadata and always outputs MP3
       const directCommand =
         `${this.ffmpegPath} -i "${inputPath}" ` +
         `-af "asetrate=44100*0.981818,aresample=44100" ` +
         `-c:a libmp3lame -b:a 320k ` +
-        `-c:v copy ` + // Copy video stream (cover art)
-        `-id3v2_version 3 ` + // Ensure ID3v2 tag compatibility
-        `-map 0:a ` + // Map audio stream
-        `-map 0:v? ` + // Map video stream (cover art) if it exists
-        `-map_metadata 0 ` + // Copy existing metadata
+        `-id3v2_version 3 ` +
+        `-map 0:a ` + // Only map audio stream
         `${metadataArgs} ` +
         `"${outputPath}"`;
 
@@ -79,19 +73,14 @@ class AudioConverter {
       } catch (directError) {
         console.log("Direct conversion failed, trying alternative method...");
 
-        // Alternative method with different audio filter chain
+        // Alternative method - simpler approach
         const toMp3Command =
           `${this.ffmpegPath} -i "${inputPath}" ` +
-          `-af "asetrate=44100*0.981818,aresample=44100:filter_type=kaiser" ` +
-          `-c:a libmp3lame -b:a 320k ` +
-          `-c:v copy ` + // Still try to preserve cover art
-          `-map 0:a ` +
-          `-map 0:v? ` +
-          `-id3v2_version 3 ` +
-          `${metadataArgs} ` +
-          `"${outputPath}"`;
+          `-af "asetrate=44100*0.981818,aresample=44100" ` +
+          `-c:a libmp3lame -b:a 320k -ar 44100 ` +
+          `${metadataArgs} "${outputPath}"`;
 
-        await this.execWithLogging(toMp3Command, "Alternative Conversion");
+        await this.execWithLogging(toMp3Command, "MP3 Conversion");
         return {
           path: outputPath,
           filename: path.basename(outputPath),
