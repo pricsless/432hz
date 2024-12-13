@@ -8,7 +8,7 @@ class AudioConverter {
   constructor(tempDir) {
     this.tempDir = tempDir;
     this.ensureTempDir();
-    this.ffmpegPath = "ffmpeg"; // Ensure ffmpeg is in the system PATH
+    this.ffmpegPath = "ffmpeg"; // Ensure FFmpeg is available in the system PATH
   }
 
   ensureTempDir() {
@@ -17,62 +17,16 @@ class AudioConverter {
     }
   }
 
-  async execWithLogging(command, step) {
-    console.log(`\n[${step}] Executing command:`, command);
+  async execCommand(command, step) {
+    console.log(`\n[${step}] Running command: ${command}`);
     try {
       const { stdout, stderr } = await execAsync(command);
-      if (stdout) console.log(`[${step}] stdout:`, stdout);
-      if (stderr) console.log(`[${step}] stderr:`, stderr);
+      if (stdout) console.log(`[${step}] stdout: ${stdout}`);
+      if (stderr) console.log(`[${step}] stderr: ${stderr}`);
       return { stdout, stderr };
     } catch (error) {
-      console.error(`[${step}] Error:`, error.message);
-      if (error.stdout) console.error(`[${step}] Error stdout:`, error.stdout);
-      if (error.stderr) console.error(`[${step}] Error stderr:`, error.stderr);
+      console.error(`[${step}] Error: ${error.message}`);
       throw error;
-    }
-  }
-
-  buildMetadataArgs(metadata) {
-    const args = [];
-    const metadataMap = {
-      title: "title",
-      artist: "artist",
-      album: "album",
-      year: "date",
-      track: "track",
-      genre: "genre",
-      composer: "composer",
-      copyright: "copyright",
-      description: "description",
-    };
-
-    for (const [key, ffmpegKey] of Object.entries(metadataMap)) {
-      if (metadata[key]) {
-        const sanitizedValue = metadata[key].replace(/"/g, "'"); // Replace double quotes with single quotes
-        args.push(`-metadata ${ffmpegKey}="${sanitizedValue}"`);
-      }
-    }
-
-    // Append "(432Hz)" to the title if it exists
-    if (metadata.title) {
-      const sanitizedTitle = metadata.title.replace(/"/g, "'");
-      args.push(`-metadata title="${sanitizedTitle} (432Hz)"`);
-    }
-
-    args.push("-map_metadata 0"); // Copy all metadata from the input
-    return args.join(" ");
-  }
-
-  async validateFile(inputPath) {
-    try {
-      await this.execWithLogging(
-        `${this.ffmpegPath} -i "${inputPath}" -f null -`,
-        "File Validation"
-      );
-      return true;
-    } catch (error) {
-      console.error("File validation failed:", error.message);
-      return false;
     }
   }
 
@@ -85,19 +39,15 @@ class AudioConverter {
     const basename = path.basename(inputPath, ext);
     const outputPath = path.join(this.tempDir, `${basename}_432hz${ext}`);
 
-    // Fallback metadata
+    // Add default metadata if fields are missing
     const defaultMetadata = {
-      title: "Unknown Title",
+      title: basename,
       artist: "Unknown Artist",
       album: "Unknown Album",
-      year: new Date().getFullYear().toString(),
     };
     const finalMetadata = { ...defaultMetadata, ...metadata };
 
-    if (!(await this.validateFile(inputPath))) {
-      throw new Error("Invalid input file.");
-    }
-
+    // Build FFmpeg metadata arguments
     const metadataArgs = this.buildMetadataArgs(finalMetadata);
 
     const command =
@@ -106,10 +56,10 @@ class AudioConverter {
       `-c:a libmp3lame -b:a 320k ` +
       `${metadataArgs} "${outputPath}"`;
 
-    await this.execWithLogging(command, "Convert to 432Hz");
-
-    console.log("\nConversion completed successfully!");
-    console.log(`Output saved as: ${outputPath}`);
+    console.log("\nStarting conversion...");
+    await this.execCommand(command, "Convert to 432Hz");
+    console.log("Conversion completed successfully!");
+    console.log(`Output file: ${outputPath}`);
 
     return {
       path: outputPath,
@@ -117,14 +67,22 @@ class AudioConverter {
     };
   }
 
-  cleanup(filePath) {
-    try {
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-        console.log(`Cleaned up file: ${filePath}`);
+  buildMetadataArgs(metadata) {
+    const args = [];
+    for (const [key, value] of Object.entries(metadata)) {
+      if (value) {
+        const sanitizedValue = value.replace(/"/g, "'"); // Replace quotes to avoid FFmpeg errors
+        args.push(`-metadata ${key}="${sanitizedValue}"`);
       }
-    } catch (error) {
-      console.error(`Cleanup failed for ${filePath}:`, error);
+    }
+    args.push("-map_metadata 0"); // Retain original metadata when available
+    return args.join(" ");
+  }
+
+  cleanup(filePath) {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      console.log(`Deleted temporary file: ${filePath}`);
     }
   }
 }
