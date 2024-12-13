@@ -1,6 +1,6 @@
 FROM node:18-slim
 
-# Install FFmpeg and curl for health checks
+# Install FFmpeg with additional codecs
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ffmpeg \
@@ -26,12 +26,14 @@ COPY . .
 RUN mkdir -p /app/temp && \
     chmod 777 /app/temp
 
-# Expose port
-EXPOSE 8080
+# Environment variables
+ENV NODE_ENV=production
+ENV TEMP_DIR=/app/temp
+ENV PORT=8080
 
 # Add health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+    CMD curl -f http://localhost:$PORT/health || exit 1
 
 # Start the bot
 CMD ["npm", "start"]

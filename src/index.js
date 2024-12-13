@@ -41,10 +41,24 @@ const bot = new TelegramBot(config.telegramToken, {
 
 // Keep server alive function
 // Keep server alive function
+// function keepServerAlive() {
+//   setInterval(() => {
+//     https
+//       .get("https://four32hz.onrender.com/health", (resp) => {
+//         if (resp.statusCode === 200) {
+//           console.log("Server pinged successfully");
+//         }
+//       })
+//       .on("error", (err) => {
+//         console.error("Ping error:", err);
+//       });
+//   }, PING_INTERVAL);
+// }
+
 function keepServerAlive() {
   setInterval(() => {
     https
-      .get("https://four32hz.onrender.com/health", (resp) => {
+      .get(`${process.env.RAILWAY_STATIC_URL}/health`, (resp) => {
         if (resp.statusCode === 200) {
           console.log("Server pinged successfully");
         }
