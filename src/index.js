@@ -18,7 +18,6 @@ let pollingErrorTimeout;
 // Constants
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB in bytes
 const SUPPORTED_FORMATS = [".mp3", ".m4a", ".wav", ".ogg"];
-const PING_INTERVAL = 25 * 60 * 1000; // 25 minutes
 
 // Create temp directory for file processing
 const converter = new AudioConverter(config.tempDir);
@@ -55,19 +54,19 @@ const bot = new TelegramBot(config.telegramToken, {
 //   }, PING_INTERVAL);
 // }
 
-function keepServerAlive() {
-  setInterval(() => {
-    https
-      .get(`${process.env.RAILWAY_STATIC_URL}/health`, (resp) => {
-        if (resp.statusCode === 200) {
-          console.log("Server pinged successfully");
-        }
-      })
-      .on("error", (err) => {
-        console.error("Ping error:", err);
-      });
-  }, PING_INTERVAL);
-}
+// function keepServerAlive() {
+//   setInterval(() => {
+//     https
+//       .get(`${process.env.RAILWAY_STATIC_URL}/health`, (resp) => {
+//         if (resp.statusCode === 200) {
+//           console.log("Server pinged successfully");
+//         }
+//       })
+//       .on("error", (err) => {
+//         console.error("Ping error:", err);
+//       });
+//   }, PING_INTERVAL);
+// }
 
 // Start keeping server alive
 keepServerAlive();
