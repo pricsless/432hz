@@ -69,7 +69,7 @@ const bot = new TelegramBot(config.telegramToken, {
 // }
 
 // Start keeping server alive
-keepServerAlive();
+// keepServerAlive();
 
 // Error reset function
 function resetPollingErrors() {
